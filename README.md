@@ -6,20 +6,20 @@ CCNA çalışmaları kapsamında 2-tier ve 3-tier network tasarımını Packet T
 
 ## Topoloji
 
-4 switch: 2 access, 2 distribution (distribution katmanı multilayer, yani routing yapabiliyor). Her access switch, her iki distribution switch'e de bağlı (dual-homing) — tek bir uplink veya switch arızası ağı bölmesin diye.
+4 switch: 2 access, 2 distribution (distribution katmanı multilayer, yani routing yapabiliyor). Her access switch, her iki distribution switch'e de bağlı (dual-homing) — tek bir uplink (alt katmandaki bir cihazın üst katmandaki cihaza giden bağlantısı) veya switch arızası ağı bölmesin diye.
 
 ```mermaid
 graph TD
     PC0["PC0 (VLAN 10)<br/>192.168.10.10"] --- ACC1[SW-ACC1]
     PC1["PC1 (VLAN 20)<br/>192.168.20.10"] --- ACC2[SW-ACC2]
-    ACC1 ---|aktif| DIST2[SW-DIST2]
-    ACC1 -.STP: blocking.- DIST1[SW-DIST1]
+    ACC1 ---|aktif| DIST1[SW-DIST1]
+    ACC1 -.STP: blocking.- DIST2[SW-DIST2]
     ACC2 ---|aktif| DIST2
     ACC2 -.STP: blocking.- DIST1
     DIST1 ---|aktif| DIST2
 ```
 
-5 fiziksel link var, aktif olan 3 tanesi. Kalan 2'si STP (Spanning Tree Protocol) tarafından döngü oluşmasın diye "blocking" durumunda tutuluyor. 4 switch için döngüsüz bir ağaç kurmaya N-1 = 3 aktif link yeterli; blocking'teki linkler yedek olarak bekliyor ve aktif bir link koptuğunda STP birkaç saniye içinde bunlardan birini forwarding'e alıyor.
+5 fiziksel link var, aktif olan 3 tanesi. Kalan 2'si STP (Spanning Tree Protocol — switch'ler arasında fiziksel döngü varsa broadcast storm oluşmasını engellemek için bazı portları otomatik olarak devre dışı bırakan, döngüsüz mantıksal bir ağaç yapısı kuran Layer 2 protokolü) tarafından döngü oluşmasın diye "blocking" durumunda tutuluyor. 4 switch için döngüsüz bir ağaç kurmaya N-1 = 3 aktif link yeterli; blocking'teki linkler yedek olarak bekliyor ve aktif bir link koptuğunda STP birkaç saniye içinde bunlardan birini forwarding'e alıyor.
 
 ## IP / VLAN planı
 
@@ -48,7 +48,7 @@ hostname SW-ACC1
 
 ### 2. VLAN'lar
 
-VLAN'lar dört switch'in her birinde ayrı ayrı tanımlandı. VTP kullanılmadığı için switch'ler VLAN veritabanını birbirinden öğrenmiyor; her switch kendi lokal VLAN veritabanını tutuyor.
+VLAN'lar dört switch'in her birinde ayrı ayrı tanımlandı. VTP (VLAN Trunking Protocol — VLAN veritabanını switch'ler arasında trunk üzerinden otomatik senkronize eden, Cisco'ya özgü protokol) kullanılmadığı için switch'ler VLAN veritabanını birbirinden öğrenmiyor; her switch kendi lokal VLAN veritabanını tutuyor.
 
 ```
 vlan 10
@@ -61,7 +61,7 @@ exit
 
 ### 3. Trunk portları
 
-Switch'ler arası bağlantılar (access-distribution ve distribution-distribution) trunk olarak yapılandırıldı ki birden fazla VLAN aynı kablodan taşınabilsin:
+Switch'ler arası bağlantılar (access-distribution ve distribution-distribution) trunk olarak yapılandırıldı — trunk, birden fazla VLAN'ın tek bir fiziksel kablo üzerinden taşınmasını sağlayan port modu; frame'lere hangi VLAN'a ait olduğunu belirten bir etiket (802.1Q tag) eklenir:
 
 ```
 interface range fastEthernet0/1 - 3
@@ -69,7 +69,7 @@ switchport trunk encapsulation dot1q
 switchport mode trunk
 ```
 
-Not: `encapsulation dot1q` satırı yalnızca distribution katmanındaki (3560 model) switch'lerde gerekti; access katmanındaki 2960'lar tek encapsulation türünü desteklediği için bu satıra ihtiyaç duymadı.
+Not: `encapsulation dot1q` satırı yalnızca distribution katmanındaki (3560 model) switch'lerde gerekti, çünkü bu modeller hem eski Cisco'ya özel ISL hem de endüstri standardı 802.1Q trunking yöntemini destekliyor ve hangisinin kullanılacağı açıkça belirtilmeli. Access katmanındaki 2960'lar yalnızca 802.1Q'yu desteklediği için bu satıra ihtiyaç duymadı.
 
 Doğrulama (SW-DIST2 üzerinden gerçek çıktı):
 
@@ -89,7 +89,7 @@ Fa0/3     1,10,20
 
 ### 4. Access portları
 
-PC'lerin bağlı olduğu portlar ilgili VLAN'a atandı (access switch'lerde):
+PC'lerin bağlı olduğu portlar ilgili VLAN'a atandı (access switch'lerde) — access portu, tek bir VLAN'a ait uç cihazların bağlandığı, trafiği untagged taşıyan port türüdür:
 
 ```
 interface fastEthernet0/3
@@ -101,7 +101,7 @@ Doğrulama: `show vlan brief`.
 
 ### 5. InterVLAN routing
 
-VLAN 10 ile VLAN 20 birbirinden izole; aralarında trafik geçebilmesi için routing gerekiyor. Bu şu an için yalnızca SW-DIST1 üzerinde yapılandırıldı:
+VLAN 10 ile VLAN 20 birbirinden izole; aralarında trafik geçebilmesi için routing gerekiyor. Bunun için her VLAN'a bir SVI (Switch Virtual Interface — multilayer switch üzerinde bir VLAN için tanımlanan sanal Layer 3 arayüz) tanımlanıp IP adresi atanıyor; bu IP, o VLAN'daki cihazlar için gateway görevi görüyor. Bu şu an için yalnızca SW-DIST1 üzerinde yapılandırıldı:
 
 ```
 ip routing
@@ -124,13 +124,13 @@ PC0 ve PC1'e Desktop > IP Configuration üzerinden statik IP, subnet mask ve gat
 
 ## Ping testi
 
-PC0'dan PC1'e ping başarılı. Simulation modunda paketin izlediği yol:
+PC0'dan PC1'e ping başarılı. Güncel STP topolojisine göre (yukarıdaki diyagram) paketin izlediği yol:
 
 ```
-PC0 → SW-ACC1 → SW-DIST2 → SW-DIST1 → SW-DIST2 → SW-ACC2 → PC1
+PC0 → SW-ACC1 → SW-DIST1 → SW-DIST2 → SW-ACC2 → PC1
 ```
 
-Paket doğrudan SW-DIST1'e gitmiyor çünkü SW-ACC1'in SW-DIST1'e giden linki STP tarafından blocking'te; aktif uplink SW-DIST2 üzerinden. SW-DIST2'de henüz routing yapılandırılmadığı için orada yalnızca Layer 2 iletim gerçekleşiyor; VLAN 10 → VLAN 20 çevirisi (Layer 3 routing) SW-DIST1'e ulaşıldığında yapılıyor, ardından paket aynı yoldan SW-ACC2'ye iniyor. Dönüş paketi (echo reply) aynı yolu ters yönde izliyor — ICMP simetrik bir yol izlediği için beklenen davranış bu.
+SW-ACC1'in SW-DIST1'e giden linki aktif olduğu için paket doğrudan SW-DIST1'e ulaşıyor; VLAN 10 → VLAN 20 çevirisi (Layer 3 routing) burada yapılıyor. SW-DIST2'de henüz routing yapılandırılmadığı için oradan geçiş yalnızca Layer 2 iletim; paket SW-ACC2'nin aktif uplink'i olan SW-DIST2 üzerinden SW-ACC2'ye iniyor. Dönüş paketi (echo reply) aynı yolu ters yönde izliyor — ICMP simetrik bir yol izlediği için beklenen davranış bu.
 
 Bu, STP'nin belirlediği aktif topolojinin, iki nokta arası "mantıken en kısa yol" ile her zaman örtüşmediğini gösteren somut bir örnek.
 

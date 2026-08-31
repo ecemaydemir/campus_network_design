@@ -2,11 +2,13 @@
 
 `Packet Tracer` `2-Tier / Collapsed Core` `VLAN + InterVLAN Routing`
 
-CCNA çalışmaları kapsamında 2-tier ve 3-tier network tasarımını Packet Tracer üzerinde uygulamalı olarak kurdum. Amaç, tek noktadan çökebilen düz bir tasarım yerine, hiyerarşik ve redundant bir yapı kurup uçtan uca çalıştığını doğrulamaktı: VLAN'larla segmentlenmiş, tek switch veya tek kablo arızasında tüm ağın çökmediği küçük bir kampüs ağı.
+CCNA çalışmaları kapsamında 2-tier ve 3-tier network tasarımını Packet Tracer üzerinde uygulamalı olarak kurdum. Amaç, tek noktadan çökebilen düz bir tasarım yerine, hiyerarşik ve redundant bir yapı kurup uçtan uca çalıştığını doğrulamaktı. Yani: VLAN'larla bölünmüş, tek bir switch veya tek bir kablo arızasında tüm ağın çökmediği küçük bir kampüs ağı.
 
 ## Topoloji
 
-4 switch: 2 access, 2 distribution (distribution katmanı multilayer, yani routing yapabiliyor). Her access switch, her iki distribution switch'e de bağlı (dual-homing) — tek bir uplink (alt katmandaki bir cihazın üst katmandaki cihaza giden bağlantısı) veya switch arızası ağı bölmesin diye.
+4 switch var: 2 tanesi access katmanında, 2 tanesi distribution katmanında. Distribution katmanındaki switch'ler "multilayer" — yani normal switch'lerden farklı olarak routing (Layer 3 iş) de yapabiliyorlar.
+
+Her access switch, her iki distribution switch'e de bağlı. Buna "dual-homing" deniyor: tek bir uplink (alt katmandaki bir cihazın üst katmandaki cihaza giden bağlantısı) veya tek bir switch arızası, ağın geri kalanını etkilemesin diye bilerek iki yol bırakılıyor.
 
 ```mermaid
 graph TD
@@ -19,7 +21,11 @@ graph TD
     DIST1 ---|aktif| DIST2
 ```
 
-5 fiziksel link var, aktif olan 3 tanesi. Kalan 2'si STP (Spanning Tree Protocol — switch'ler arasında fiziksel döngü varsa broadcast storm oluşmasını engellemek için bazı portları otomatik olarak devre dışı bırakan, döngüsüz mantıksal bir ağaç yapısı kuran Layer 2 protokolü) tarafından döngü oluşmasın diye "blocking" durumunda tutuluyor. 4 switch için döngüsüz bir ağaç kurmaya N-1 = 3 aktif link yeterli; blocking'teki linkler yedek olarak bekliyor ve aktif bir link koptuğunda STP birkaç saniye içinde bunlardan birini forwarding'e alıyor.
+Toplamda 5 fiziksel kablo var ama aktif olarak kullanılan sadece 3 tanesi. Kalan 2'si STP (Spanning Tree Protocol) tarafından "blocking" durumunda tutuluyor.
+
+STP kısaca şunu yapıyor: switch'ler arasında birden fazla yol (yani fiziksel bir döngü) varsa, bu döngü bir paketin ağda sonsuza kadar dönüp durmasına (broadcast storm) yol açabilir. STP bunu önlemek için fazla olan yolları otomatik olarak kapatıyor, geri kalanları da yedek olarak bekletiyor. Aktif bir kablo koparsa, STP birkaç saniye içinde bekleyen yedek yollardan birini devreye sokuyor.
+
+Buradaki sayı da mantıklı: 4 switch'i döngüsüz şekilde birbirine bağlamak için sadece 3 aktif bağlantı yeterli (matematikte buna N-1 kuralı denir, N = switch sayısı). Elimizde 5 kablo olduğu için STP otomatik olarak 2 tanesini blocking'e alıyor.
 
 ## IP / VLAN planı
 
@@ -28,15 +34,17 @@ graph TD
 | SW-ACC1 | Access | trunk (10, 20) | — |
 | SW-ACC2 | Access | trunk (10, 20) | — |
 | SW-DIST1 | Distribution (routing) | SVI 10 + 20 | 192.168.10.1 / 192.168.20.1 |
-| SW-DIST2 | Distribution | trunk (10, 20) | — (henüz SVI yok, ilgili notu aşağıda) |
+| SW-DIST2 | Distribution | trunk (10, 20) | — (henüz SVI yok, ilgili not aşağıda) |
 | PC0 | Son kullanıcı | 10 | 192.168.10.10 /24, GW 192.168.10.1 |
 | PC1 | Son kullanıcı | 20 | 192.168.20.10 /24, GW 192.168.20.1 |
 
-VLAN 10 "SALES", VLAN 20 "IT" olarak adlandırıldı (lab amaçlı örnek isimlendirme).
+VLAN 10 "SALES", VLAN 20 "IT" olarak adlandırıldı (lab amaçlı örnek isimlendirme, gerçek bir departman ayrımı yok).
 
 ## Kurulum adımları
 
 ### 1. Hostname'ler
+
+Dört switch de birbirinden ayırt edilebilsin diye önce isimlendirildi:
 
 ```
 enable
@@ -48,7 +56,9 @@ hostname SW-ACC1
 
 ### 2. VLAN'lar
 
-VLAN'lar dört switch'in her birinde ayrı ayrı tanımlandı. VTP (VLAN Trunking Protocol — VLAN veritabanını switch'ler arasında trunk üzerinden otomatik senkronize eden, Cisco'ya özgü protokol) kullanılmadığı için switch'ler VLAN veritabanını birbirinden öğrenmiyor; her switch kendi lokal VLAN veritabanını tutuyor.
+Önce VLAN'ın ne olduğu: VLAN (Virtual LAN), fiziksel olarak aynı switch'e bağlı olsalar bile cihazları mantıksal olarak ayrı ağlara bölme yöntemi. VLAN 10'daki bir PC ile VLAN 20'deki bir PC aynı switch'e, hatta aynı kabloya bile bağlı olsa birbirini normalde hiç göremiyor — sanki fiziksel olarak ayrı iki switch'e bağlıymış gibi davranıyorlar. Bu lab'da PC0'ı VLAN 10'a, PC1'i VLAN 20'ye koymamızın sebebi tam olarak bu: onları mantıksal olarak birbirinden ayırmak, sonra da (aşağıdaki InterVLAN routing adımında) kontrollü şekilde tekrar konuşturmak.
+
+VLAN'lar dört switch'in her birinde ayrı ayrı tanımlandı — tek bir switch'te yapıp diğerlerine otomatik yayılmasını beklemedik. Sebebi: VTP (VLAN Trunking Protocol) kullanılmadı. VTP, normalde VLAN listesini switch'ler arasında otomatik senkronize eden Cisco'ya özgü bir protokol. Bu lab'da kapalı olduğu için her switch kendi VLAN listesini kendi hafızasında ayrı ayrı tutuyor; bu yüzden aynı komutlar dört switch'e de tek tek girildi.
 
 ```
 vlan 10
@@ -61,7 +71,7 @@ exit
 
 ### 3. Trunk portları
 
-Switch'ler arası bağlantılar (access-distribution ve distribution-distribution) trunk olarak yapılandırıldı — trunk, birden fazla VLAN'ın tek bir fiziksel kablo üzerinden taşınmasını sağlayan port modu; frame'lere hangi VLAN'a ait olduğunu belirten bir etiket (802.1Q tag) eklenir:
+Switch'ler arası bağlantılar (access-distribution ve distribution-distribution) trunk olarak yapılandırıldı. Trunk, birden fazla VLAN'ın aynı anda tek bir fiziksel kablo üzerinden taşınabilmesini sağlayan bir port modu. Bunu şöyle düşünebilirsin: normal (access) bir port tek bir VLAN'ın trafiğini taşıyabilir, ama trunk portu birden fazla VLAN'ı aynı kablodan geçirebiliyor — her paketin hangi VLAN'a ait olduğunu anlamak için üzerine küçük bir "etiket" (802.1Q tag) ekleniyor.
 
 ```
 interface range fastEthernet0/1 - 3
@@ -69,7 +79,12 @@ switchport trunk encapsulation dot1q
 switchport mode trunk
 ```
 
-Not: `encapsulation dot1q` satırı yalnızca distribution katmanındaki (3560 model) switch'lerde gerekti, çünkü bu modeller hem eski Cisco'ya özel ISL hem de endüstri standardı 802.1Q trunking yöntemini destekliyor ve hangisinin kullanılacağı açıkça belirtilmeli. Access katmanındaki 2960'lar yalnızca 802.1Q'yu desteklediği için bu satıra ihtiyaç duymadı.
+Satır satır ne yapıyor:
+- `interface range fastEthernet0/1 - 3` — Fa0/1, Fa0/2 ve Fa0/3 portlarını tek seferde seçiyor; böylece aynı ayarları üç kez tek tek yazmak yerine hepsine birden uyguluyoruz.
+- `switchport trunk encapsulation dot1q` — seçili portlar trunk moduna geçtiğinde hangi etiketleme yöntemini (802.1Q) kullanacağını belirtiyor.
+- `switchport mode trunk` — portları asıl trunk moduna geçiren satır bu. Bir port fabrika ayarında access moddadır (tek VLAN taşır), bu komut onu trunk'a çeviriyor.
+
+Not: `encapsulation dot1q` satırı yalnızca distribution katmanındaki (3560 model) switch'lerde gerekti. Sebebi, bu switch modelinin iki farklı trunk yöntemini (eski Cisco'ya özel ISL ve endüstri standardı 802.1Q) desteklemesi — iki seçenek olunca switch'e hangisini kullanacağını açıkça söylemek gerekiyor. Access katmanındaki 2960 switch'ler ise sadece 802.1Q'yu bildiği için, tek seçenek olduğundan bu satıra hiç ihtiyaç duymadı.
 
 Doğrulama (SW-DIST2 üzerinden gerçek çıktı):
 
@@ -89,7 +104,7 @@ Fa0/3     1,10,20
 
 ### 4. Access portları
 
-PC'lerin bağlı olduğu portlar ilgili VLAN'a atandı (access switch'lerde) — access portu, tek bir VLAN'a ait uç cihazların bağlandığı, trafiği untagged taşıyan port türüdür:
+PC'lerin bağlı olduğu portlar ilgili VLAN'a atandı (access switch'lerde). Access portu, trunk'ın tersine, sadece tek bir VLAN'a ait uç cihazların (PC, yazıcı vb.) bağlandığı port türü — trafik burada "etiketsiz" (untagged) taşınıyor, çünkü bir tarafta zaten tek VLAN olduğu için ekstra bir işaretlemeye gerek yok.
 
 ```
 interface fastEthernet0/3
@@ -97,11 +112,18 @@ switchport mode access
 switchport access vlan 10
 ```
 
+Satır satır:
+- `interface fastEthernet0/3` — PC'nin bağlı olduğu portu seçiyoruz.
+- `switchport mode access` — portu access moduna alıyoruz; trunk'ın tersine bu port yalnızca tek bir VLAN'ın trafiğini taşıyacak.
+- `switchport access vlan 10` — bu portu VLAN 10'un üyesi yapıyoruz. Artık bu porta bağlanan her cihaz otomatik olarak VLAN 10'un içinde sayılıyor.
+
 Doğrulama: `show vlan brief`.
 
 ### 5. InterVLAN routing
 
-VLAN 10 ile VLAN 20 birbirinden izole; aralarında trafik geçebilmesi için routing gerekiyor. Bunun için her VLAN'a bir SVI (Switch Virtual Interface — multilayer switch üzerinde bir VLAN için tanımlanan sanal Layer 3 arayüz) tanımlanıp IP adresi atanıyor; bu IP, o VLAN'daki cihazlar için gateway görevi görüyor. Bu şu an için yalnızca SW-DIST1 üzerinde yapılandırıldı:
+VLAN 10 ile VLAN 20 birbirinden tamamen izole; yani normalde aralarında hiç trafik geçmiyor. Aralarında konuşabilmeleri için bir yerde routing (Layer 3 iş) yapılması gerekiyor.
+
+Bunun için her VLAN'a bir SVI tanımlanıp IP adresi verildi. SVI (Switch Virtual Interface), bir multilayer switch üzerinde belirli bir VLAN için tanımlanan sanal bir arayüz — fiziksel bir port değil, yazılımsal olarak var olan bir arayüz. Bu arayüze IP adresi verilince, o VLAN'daki cihazlar için "gateway" (varsayılan ağ geçidi) görevi görmeye başlıyor. Şu an bu sadece SW-DIST1 üzerinde yapılandırıldı:
 
 ```
 ip routing
@@ -114,9 +136,16 @@ ip address 192.168.20.1 255.255.255.0
 no shutdown
 ```
 
-`ip routing` global komutu açılmadan multilayer switch olsa dahi VLAN'lar arası paket geçişi gerçekleşmiyor.
+Satır satır:
+- `ip routing` — switch'e VLAN'lar arasında paket yönlendirebilme iznini global olarak (bir kere, tüm cihaz için) açıyor. Bu olmadan aşağıdaki SVI'lar tanımlansa bile routing çalışmıyor.
+- `interface vlan 10` — VLAN 10 için sanal bir arayüz (SVI) oluşturup onun ayarlarına giriyoruz. Bu fiziksel bir port değil, yazılımsal bir arayüz.
+- `ip address 192.168.10.1 255.255.255.0` — bu sanal arayüze bir IP adresi ve subnet mask veriyoruz. Bu IP, VLAN 10'daki tüm cihazların gateway'i (varsayılan ağ geçidi) olacak.
+- `no shutdown` — arayüzler Cisco cihazlarında fabrika ayarında kapalı gelir; bu satır arayüzü aktif hale getiriyor.
+- `exit` — VLAN 10'un arayüz ayarlarından çıkıp aynı üç işlemi (arayüze gir, IP ver, aç) VLAN 20 için tekrarlıyoruz.
 
-SW-DIST2'de şu an SVI yok — bir sonraki adımda HSRP ile gateway yedekliliği kurulacak (bkz. "Sırada ne var").
+Özetle `ip routing` komutu, switch'e "VLAN'lar arasında da paket yönlendir" demenin global anahtarı. Bu komut açılmadan, switch multilayer olsa bile VLAN'lar arası paket geçişi gerçekleşmiyor.
+
+SW-DIST2'de şu an bilerek SVI yok — bir sonraki adımda HSRP ile gateway yedekliliği kurulacak (bkz. "Sırada ne var").
 
 ### 6. PC IP ayarları
 
@@ -130,12 +159,12 @@ PC0'dan PC1'e ping başarılı. Güncel STP topolojisine göre (yukarıdaki diya
 PC0 → SW-ACC1 → SW-DIST1 → SW-DIST2 → SW-ACC2 → PC1
 ```
 
-SW-ACC1'in SW-DIST1'e giden linki aktif olduğu için paket doğrudan SW-DIST1'e ulaşıyor; VLAN 10 → VLAN 20 çevirisi (Layer 3 routing) burada yapılıyor. SW-DIST2'de henüz routing yapılandırılmadığı için oradan geçiş yalnızca Layer 2 iletim; paket SW-ACC2'nin aktif uplink'i olan SW-DIST2 üzerinden SW-ACC2'ye iniyor. Dönüş paketi (echo reply) aynı yolu ters yönde izliyor — ICMP simetrik bir yol izlediği için beklenen davranış bu.
+Neden bu yoldan gittiğini adım adım açıklamak gerekirse: SW-ACC1'in SW-DIST1'e giden bağlantısı aktif olduğu için paket doğrudan SW-DIST1'e ulaşıyor. VLAN 10 → VLAN 20 çevirisi (yani asıl routing işlemi) tam burada, SW-DIST1'de yapılıyor. Sonra paket SW-DIST2 üzerinden SW-ACC2'ye iniyor — çünkü SW-ACC2'nin aktif bağlantısı SW-DIST1'e değil, SW-DIST2'ye. SW-DIST2 burada routing yapmıyor, sadece paketi olduğu gibi iletiyor (Layer 2 iş). Dönüş paketi (echo reply) de aynı yolu ters yönde izliyor — bu ICMP'nin normal, beklenen davranışı.
 
-Bu, STP'nin belirlediği aktif topolojinin, iki nokta arası "mantıken en kısa yol" ile her zaman örtüşmediğini gösteren somut bir örnek.
+Kısacası: iki nokta arasındaki "mantıken en kısa yol" ile STP'nin gerçekte açık bıraktığı yol her zaman aynı olmuyor. Hangi kablonun aktif, hangisinin bloklu olduğu, paketin fiilen hangi switch'lerden geçeceğini belirliyor.
 
 ## Sırada ne var
 
-- **HSRP**: Şu an tek routing noktası SW-DIST1. SW-DIST2'ye de SVI eklenip HSRP ile iki distribution switch'in tek sanal gateway gibi çalışması sağlanacak.
-- **3-Tier'e geçiş**: Bir Core katmanı eklenerek tasarımın 3-tier'e genişletilmesi planlanıyor.
+- **HSRP**: Şu an tek routing noktası SW-DIST1. O switch giderse VLAN'lar arası trafik de durur. SW-DIST2'ye de SVI eklenip HSRP ile iki distribution switch'in tek bir "sanal gateway" gibi çalışması sağlanacak.
+- **3-Tier'e geçiş**: Bir Core katmanı eklenerek tasarım 3-tier'e genişletilecek.
 - Ekran görüntüleri ve `.pkt` dosyası bu repoya eklenecek.

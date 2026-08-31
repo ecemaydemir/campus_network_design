@@ -119,18 +119,6 @@ Satır satır:
 
 Doğrulama: `show vlan brief`.
 
-### Not: Bu Tasarımda VLAN, Access ve Trunk Mantığı
-
-1. **Fiziksel Karmaşa Sorunu:** SALES (VLAN 10) ve IT (VLAN 20) departmanlarını birbirinden izole etmek için her kata veya odaya ayrı ayrı switch'ler ve katlar arası onlarca kablo çekmek gerekiyordu.
-
-2. **VLAN Çözümü:** Ayrı fiziksel switch'ler almak yerine `SW-ACC1` ve `SW-ACC2` üzerinde mantıksal odalar açtık. Böylece PC0 (SALES) ve PC1 (IT) aynı fiziksel cihazlara bağlı olsalar bile sanki ayrı ağlardaymış gibi birbirinden tamamen izole edildi.
-
-3. **Bağlantı Şişmesi Sorunu:** Access switch'ler ile Distribution switch'ler arasına hem VLAN 10 hem de VLAN 20 için ayrı ayrı fiziksel kablolar çekmek port ve kablo israfına yol açıyordu.
-
-4. **Trunk ve Access Çözümü:**
-    * **Access Port:** PC0 ve PC1'in bağlı olduğu portlardır (`switchport mode access`). PC'ler etiket anlamaz; trafik bu portlardan **etiketsiz (untagged)** akar.
-    * **Trunk Port:** `SW-ACC` ile `SW-DIST` switch'leri arasındaki ortak hatlardır (`switchport mode trunk`). İki switch arasına tek kablo çekilir; VLAN 10 ve VLAN 20 paketleri bu tek hattan geçerken karışmasın diye switch pakete bir etiket basar (**802.1Q Tag**). Karşı switch etiketi okur, ilgili VLAN'a verirken etiketi söker.
-
 ### 5. InterVLAN routing
 
 VLAN 10 ile VLAN 20 birbirinden tamamen izole; yani normalde aralarında hiç trafik geçmiyor. Aralarında konuşabilmeleri için bir yerde routing (Layer 3 iş) yapılması gerekiyor.
